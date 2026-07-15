@@ -246,7 +246,7 @@ function renderLoc(code){
    +['14d','90d','13mo','all'].map(r=>'<button class="rbtn'+(r===locRange?' active':'')+'" onclick="locRange=\''+r+'\';renderLocCharts(\''+code+'\');markRange(this)">'+({'14d':'14 days','90d':'90 days','13mo':'13 months','all':'All history'})[r]+'</button>').join('')
    +'</div><div class="chartwrap"><canvas id="tChart"></canvas></div></div>'
    +'<div class="panel"><h3>Humidity</h3><div class="chartwrap"><canvas id="hChart"></canvas></div>'
-   +'<div class="legend-note">Shaded band = target range (68–76 °F / 45–55 %RH). 90-day &amp; 13-month views plot daily averages; “All history” plots monthly averages.</div></div>';
+   +'<div class="legend-note">Print Room line = average of all in-room sensors (room + presses). Monti / outside-print-room sensors shown as a separate line. Shaded band = target range (68–76 °F / 45–55 %RH). 90-day &amp; 13-month views plot daily averages; “All history” plots monthly averages.</div></div>';
   renderLocCharts(code);
 }
 function markRange(btn){btn.parentElement.querySelectorAll('.rbtn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
@@ -264,23 +264,33 @@ function seriesFor(s){
   return {labels, t:labels.map(l=>s.daily[l][1]), h:labels.map(l=>s.daily[l][4])};
 }
 const SENSOR_COLORS=['#1f6fd6','#d98a00','#1e9e4a','#8e44ad','#d93838','#0e8f8f'];
+function isOutsideSensor(nm){ return /monti/i.test(nm) || /outside/i.test(nm); }
+function groupSeriesAvg(members,key,labels){
+  const maps=members.map(([nm,sr])=>{const m={};sr.labels.forEach((l,j)=>m[l]=sr[key][j]);return m;});
+  return labels.map(l=>{let s=0,n=0;maps.forEach(m=>{const v=m[l];if(v!=null){s+=v;n++;}});return n?+(s/n).toFixed(1):null;});
+}
+function outsideLabel(members){
+  if(members.every(([nm])=>/monti/i.test(nm))) return 'Monti Area';
+  if(members.every(([nm])=>/outside/i.test(nm))) return 'Outside Print Room';
+  return 'Monti / Outside';
+}
 function renderLocCharts(code){
   killCharts();
   const ss=locSensors(code);
-  // union labels
-  const labSet=new Set(); const per=[];
-  ss.forEach(([nm,s],i)=>{const sr=seriesFor(s);per.push([nm,sr]);sr.labels.forEach(l=>labSet.add(l));});
+  const prMembers=[], outMembers=[]; const labSet=new Set();
+  ss.forEach(([nm,s])=>{ const sr=seriesFor(s); sr.labels.forEach(l=>labSet.add(l)); (isOutsideSensor(nm)?outMembers:prMembers).push([nm,sr]); });
   const labels=[...labSet].sort();
-  const mk=(key)=>per.map(([nm,sr],i)=>{
-    const map={};sr.labels.forEach((l,j)=>map[l]=sr[key][j]);
-    return {label:nm,data:labels.map(l=>map[l]??null),borderColor:SENSOR_COLORS[i%6],backgroundColor:SENSOR_COLORS[i%6],tension:.25,spanGaps:true,pointRadius:0,borderWidth:1.8};
-  });
-  const opts=(unit,lo,hi)=>({responsive:true,maintainAspectRatio:false,animation:false,
-    scales:{y:{title:{display:true,text:unit}},x:{ticks:{maxTicksLimit:14}}},plugins:{legend:{position:'bottom'}}});
+  const PR_COLOR='#1f6fd6', OUT_COLOR='#d98a00';
+  const mk=(key)=>{
+    const ds=[];
+    if(prMembers.length) ds.push({label:'Print Room',data:groupSeriesAvg(prMembers,key,labels),borderColor:PR_COLOR,backgroundColor:PR_COLOR,tension:.25,spanGaps:true,pointRadius:0,borderWidth:2});
+    if(outMembers.length) ds.push({label:outsideLabel(outMembers),data:groupSeriesAvg(outMembers,key,labels),borderColor:OUT_COLOR,backgroundColor:OUT_COLOR,tension:.25,spanGaps:true,pointRadius:0,borderWidth:2});
+    return ds;
+  };
+  const opts=(unit,lo,hi)=>({responsive:true,maintainAspectRatio:false,animation:false, scales:{y:{title:{display:true,text:unit}},x:{ticks:{maxTicksLimit:14}}},plugins:{legend:{position:'bottom'}}});
   charts.push(new Chart(document.getElementById('tChart'),{type:'line',data:{labels,datasets:mk('t')},options:opts('°F'),plugins:[bandPlugin(T_LO,T_HI)]}));
   charts.push(new Chart(document.getElementById('hChart'),{type:'line',data:{labels,datasets:mk('h')},options:opts('% RH'),plugins:[bandPlugin(H_LO,H_HI)]}));
 }
-
 fetch('data.json').then(r=>r.json()).then(d=>{
   DATA=d;
   document.getElementById('gen').textContent='Data updated: '+d.generated.replace('T',' ').slice(0,16);
