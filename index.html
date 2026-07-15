@@ -274,6 +274,15 @@ function outsideLabel(members){
   if(members.every(([nm])=>/outside/i.test(nm))) return 'Outside Print Room';
   return 'Monti / Outside';
 }
+function linTrend(data){
+  const pts=[]; data.forEach((v,i)=>{ if(v!=null && !isNaN(v)) pts.push([i,+v]); });
+  if(pts.length<2) return data.map(()=>null);
+  const n=pts.length; let sx=0,sy=0,sxx=0,sxy=0;
+  pts.forEach(([x,y])=>{ sx+=x; sy+=y; sxx+=x*x; sxy+=x*y; });
+  const den=n*sxx-sx*sx; const slope=den? (n*sxy-sx*sy)/den : 0;
+  const intercept=(sy-slope*sx)/n;
+  return data.map((_,i)=>+(slope*i+intercept).toFixed(2));
+}
 function renderLocCharts(code){
   killCharts();
   const ss=locSensors(code);
@@ -283,8 +292,16 @@ function renderLocCharts(code){
   const PR_COLOR='#1f6fd6', OUT_COLOR='#d98a00';
   const mk=(key)=>{
     const ds=[];
-    if(prMembers.length) ds.push({label:'Print Room',data:groupSeriesAvg(prMembers,key,labels),borderColor:PR_COLOR,backgroundColor:PR_COLOR,tension:.25,spanGaps:true,pointRadius:0,borderWidth:2});
-    if(outMembers.length) ds.push({label:outsideLabel(outMembers),data:groupSeriesAvg(outMembers,key,labels),borderColor:OUT_COLOR,backgroundColor:OUT_COLOR,tension:.25,spanGaps:true,pointRadius:0,borderWidth:2});
+    if(prMembers.length){
+      const prData=groupSeriesAvg(prMembers,key,labels);
+      ds.push({label:'Print Room',data:prData,borderColor:PR_COLOR,backgroundColor:PR_COLOR,tension:.25,spanGaps:true,pointRadius:0,borderWidth:2});
+      ds.push({label:'Print Room trend',data:linTrend(prData),borderColor:PR_COLOR,borderDash:[6,4],borderWidth:1.5,pointRadius:0,tension:0,spanGaps:true});
+    }
+    if(outMembers.length){
+      const outData=groupSeriesAvg(outMembers,key,labels);
+      ds.push({label:outsideLabel(outMembers),data:outData,borderColor:OUT_COLOR,backgroundColor:OUT_COLOR,tension:.25,spanGaps:true,pointRadius:0,borderWidth:2});
+      ds.push({label:outsideLabel(outMembers)+' trend',data:linTrend(outData),borderColor:OUT_COLOR,borderDash:[6,4],borderWidth:1.5,pointRadius:0,tension:0,spanGaps:true});
+    }
     return ds;
   };
   const opts=(unit,lo,hi)=>({responsive:true,maintainAspectRatio:false,animation:false, scales:{y:{title:{display:true,text:unit}},x:{ticks:{maxTicksLimit:14}}},plugins:{legend:{position:'bottom'}}});
