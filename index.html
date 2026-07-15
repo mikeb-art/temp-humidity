@@ -169,17 +169,24 @@ function renderDash(){
   let alertHtml='';
   if(alerts.length) alertHtml='<div class="note"><b>⚠ Out of range now</b><br>'+alerts.map(a=>'• '+a).join('<br>')+'</div>';
   c.innerHTML='<div class="cards">'+cards+'</div>'+alertHtml
-    +'<div class="panel"><h3>30-Day Trends vs Prior 30 Days</h3><div class="trend-grid" id="trends"></div></div>'
+    +'<div class="panel"><h3 id="trendsHead">30-Day Trends vs Prior 30 Days</h3><div class="range-btns"><button class="rbtn active" id="trendModeBtn" onclick="toggleTrendMode(this)">Show Year-over-Year</button></div><div class="trend-grid" id="trends"></div></div>'
     +'<div class="panel"><h3>Monthly Averages — All Locations</h3><div class="range-btns" id="mmode">'
     +'<button class="rbtn active" onclick="dashMetric=\'h\';drawDashMonthly();mark(this)">Humidity %</button>'
     +'<button class="rbtn" onclick="dashMetric=\'t\';drawDashMonthly();mark(this)">Temperature °F</button></div>'
+    +'<div class="range-btns" id="drange"><button class="rbtn" data-r="30d" onclick="dashRangeClick(this)">30 Days</button><button class="rbtn" data-r="90d" onclick="dashRangeClick(this)">90 Days</button><button class="rbtn" data-r="1yr" onclick="dashRangeClick(this)">1 Year</button><button class="rbtn active" data-r="all" onclick="dashRangeClick(this)">All</button></div><div class="range-btns"><button class="rbtn" id="outsideBtn" onclick="dashOutsideClick(this)">Include Outside</button></div>'
     +'<div class="chartwrap"><canvas id="dashChart"></canvas></div>'
-    +'<div class="legend-note">One line per location (average of its sensors). Shaded band = target range.</div></div>';
+    +'<div class="legend-note">One line per location (print-room sensors averaged; toggle to add outside). Shaded band = target range.</div></div>';
   renderTrends();
   drawDashMonthly();
 }
 function mark(btn){btn.parentElement.querySelectorAll('.rbtn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
 let dashMetric='h';
+let dashRange='all';
+let dashIncludeOutside=false;
+let trendMode='trend';
+function dashRangeClick(btn){dashRange=btn.dataset.r;drawDashMonthly();mark(btn);}
+function dashOutsideClick(btn){dashIncludeOutside=!dashIncludeOutside;btn.classList.toggle('active');drawDashMonthly();}
+function toggleTrendMode(btn){trendMode=(trendMode==='trend')?'yoy':'trend';var hd=document.getElementById('trendsHead');if(hd)hd.textContent=(trendMode==='yoy')?'Year-over-Year — Last 30 Days vs Same Period Last Year':'30-Day Trends vs Prior 30 Days';btn.textContent=(trendMode==='yoy')?'Show 30-Day Trends':'Show Year-over-Year';renderTrends();}
 
 function trendOf(sensorEntries, idx){ // idx 1=temp,4=hum from daily [minT,avgT,maxT,minH,avgH,maxH]
   const gen=new Date(DATA.generated);
@@ -187,7 +194,7 @@ function trendOf(sensorEntries, idx){ // idx 1=temp,4=hum from daily [minT,avgT,
   const avgOver=(from,to)=>{let s=0,n=0;
     for(const [,sd] of sensorEntries) for(const [d,v] of Object.entries(sd.daily)) if(d>=from&&d<to){s+=v[idx];n++;}
     return n?s/n:null;}
-  const cur=avgOver(day(30),day(0)), prev=avgOver(day(60),day(30));
+  const cur=avgOver(day(30),day(0)), prev=(typeof trendMode!=='undefined'&&trendMode==='yoy')?avgOver(day(395),day(365)):avgOver(day(60),day(30));
   return [cur,prev];
 }
 function renderTrends(){
@@ -213,14 +220,34 @@ function bandPlugin(lo,hi){
 function drawDashMonthly(){
   killCharts();
   const t=dashMetric==='t';
-  const months=new Set();
-  Object.values(DATA.sensors).forEach(s=>Object.keys(s.monthly).forEach(m=>months.add(m)));
-  const labels=[...months].sort().filter(m=>m>='2024-06');
-  const ds=[];
-  for(const [code] of Object.entries(DATA.locations)){
-    const ss=locSensors(code);
-    ds.push({label:code,data:labels.map(m=>{let s=0,n=0;for(const[,sd]of ss){const v=sd.monthly[m];if(v){s+=v[t?0:1];n++;}}return n?+(s/n).toFixed(1):null;}),
-      borderColor:LOC_COLORS[code],backgroundColor:LOC_COLORS[code],tension:.3,spanGaps:true,pointRadius:2});
+  const daily=(dashRange==='30d'||dashRange==='90d');
+  const inc=nm=>dashIncludeOutside||!isOutsideSensor(nm);
+  let labels=[], ds=[];
+  if(daily){
+    const gen=new Date(DATA.generated);
+    const days=dashRange==='30d'?30:90;
+    const from=new Date(gen);from.setDate(from.getDate()-days);
+    const fromStr=from.toISOString().slice(0,10);
+    const set=new Set();
+    Object.values(DATA.sensors).forEach(s=>Object.keys(s.daily||{}).forEach(d=>{if(d>=fromStr)set.add(d);}));
+    labels=[...set].sort();
+    const di=t?1:4;
+    for(const [code] of Object.entries(DATA.locations)){
+      const ss=locSensors(code);
+      ds.push({label:code,data:labels.map(m=>{let s=0,n=0;for(const[nm,sd]of ss){if(!inc(nm))continue;const v=sd.daily[m];if(v){s+=v[di];n++;}}return n?+(s/n).toFixed(1):null;}),
+        borderColor:LOC_COLORS[code],backgroundColor:LOC_COLORS[code],tension:.3,spanGaps:true,pointRadius:0});
+    }
+  }else{
+    const months=new Set();
+    Object.values(DATA.sensors).forEach(s=>Object.keys(s.monthly).forEach(m=>months.add(m)));
+    let all=[...months].sort().filter(m=>m>='2024-06');
+    labels=dashRange==='1yr'?all.slice(-12):all;
+    const mi=t?0:1;
+    for(const [code] of Object.entries(DATA.locations)){
+      const ss=locSensors(code);
+      ds.push({label:code,data:labels.map(m=>{let s=0,n=0;for(const[nm,sd]of ss){if(!inc(nm))continue;const v=sd.monthly[m];if(v){s+=v[mi];n++;}}return n?+(s/n).toFixed(1):null;}),
+        borderColor:LOC_COLORS[code],backgroundColor:LOC_COLORS[code],tension:.3,spanGaps:true,pointRadius:2});
+    }
   }
   charts.push(new Chart(document.getElementById('dashChart'),{type:'line',
     data:{labels,datasets:ds},
