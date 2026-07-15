@@ -229,7 +229,7 @@ function drawDashMonthly(){
 }
 
 /* ---------- Location view ---------- */
-let locRange='14d';
+let locRange='30d';
 function renderLoc(code){
   const name=DATA.locations[code];
   document.getElementById('title').textContent='🖨 '+code+' — '+name;
@@ -243,23 +243,16 @@ function renderLoc(code){
   }
   c.innerHTML='<div class="panel" style="margin-top:0"><h3>Current Readings</h3><table class="readings"><tr><th>Sensor</th><th>Temp</th><th>Humidity</th><th>Last reading</th><th>Status</th></tr>'+rows+'</table></div>'
    +'<div class="panel"><h3>Temperature</h3><div class="range-btns">'
-   +['14d','90d','13mo','all'].map(r=>'<button class="rbtn'+(r===locRange?' active':'')+'" onclick="locRange=\''+r+'\';renderLocCharts(\''+code+'\');markRange(this)">'+({'14d':'14 days','90d':'90 days','13mo':'13 months','all':'All history'})[r]+'</button>').join('')
+   +['30d','90d','180d','all'].map(r=>'<button class="rbtn'+(r===locRange?' active':'')+'" onclick="locRange=\''+r+'\';renderLocCharts(\''+code+'\');markRange(this)">'+({'30d':'30 days','90d':'90 days','180d':'180 days','all':'All time'})[r]+'</button>').join('')
    +'</div><div class="chartwrap"><canvas id="tChart"></canvas></div></div>'
    +'<div class="panel"><h3>Humidity</h3><div class="chartwrap"><canvas id="hChart"></canvas></div>'
-   +'<div class="legend-note">Print Room line = average of all in-room sensors (room + presses). Monti / outside-print-room sensors shown as a separate line. Shaded band = target range (68–76 °F / 45–55 %RH). 90-day &amp; 13-month views plot daily averages; “All history” plots monthly averages.</div></div>';
+   +'<div class="legend-note">Print Room line = average of all in-room sensors (room + presses). Monti / outside-print-room sensors shown as a separate line. Shaded band = target range (68–76 °F / 45–55 %RH). 30, 90 &amp; 180-day views plot daily averages; “All time” plots monthly averages.</div></div>';
   renderLocCharts(code);
 }
 function markRange(btn){btn.parentElement.querySelectorAll('.rbtn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
 function seriesFor(s){
-  if(locRange==='14d'){
-    const labels=Object.keys(s.hourly).sort();
-    return {labels:labels.map(l=>l.slice(5)), t:labels.map(l=>s.hourly[l][0]), h:labels.map(l=>s.hourly[l][1])};
-  }
-  if(locRange==='all'){
-    const labels=Object.keys(s.monthly).sort();
-    return {labels, t:labels.map(l=>s.monthly[l][0]), h:labels.map(l=>s.monthly[l][1])};
-  }
-  const days=locRange==='90d'?90:395;
+  if(locRange==='all'){ const labels=Object.keys(s.monthly).sort(); return {labels, t:labels.map(l=>s.monthly[l][0]), h:labels.map(l=>s.monthly[l][1])}; }
+  const days = locRange==='30d'?30 : locRange==='180d'?180 : 90;
   const labels=Object.keys(s.daily).sort().slice(-days);
   return {labels, t:labels.map(l=>s.daily[l][1]), h:labels.map(l=>s.daily[l][4])};
 }
@@ -269,20 +262,7 @@ function groupSeriesAvg(members,key,labels){
   const maps=members.map(([nm,sr])=>{const m={};sr.labels.forEach((l,j)=>m[l]=sr[key][j]);return m;});
   return labels.map(l=>{let s=0,n=0;maps.forEach(m=>{const v=m[l];if(v!=null){s+=v;n++;}});return n?+(s/n).toFixed(1):null;});
 }
-function outsideLabel(members){
-  if(members.every(([nm])=>/monti/i.test(nm))) return 'Monti Area';
-  if(members.every(([nm])=>/outside/i.test(nm))) return 'Outside Print Room';
-  return 'Monti / Outside';
-}
-function linTrend(data){
-  const pts=[]; data.forEach((v,i)=>{ if(v!=null && !isNaN(v)) pts.push([i,+v]); });
-  if(pts.length<2) return data.map(()=>null);
-  const n=pts.length; let sx=0,sy=0,sxx=0,sxy=0;
-  pts.forEach(([x,y])=>{ sx+=x; sy+=y; sxx+=x*x; sxy+=x*y; });
-  const den=n*sxx-sx*sx; const slope=den? (n*sxy-sx*sy)/den : 0;
-  const intercept=(sy-slope*sx)/n;
-  return data.map((_,i)=>+(slope*i+intercept).toFixed(2));
-}
+function outsideLabel(members){ return 'Outside Print Room, (Monti area)'; }
 function renderLocCharts(code){
   killCharts();
   const ss=locSensors(code);
@@ -294,7 +274,7 @@ function renderLocCharts(code){
     const ds=[];
     if(prMembers.length){
       const prData=groupSeriesAvg(prMembers,key,labels);
-      ds.push({label:'Print Room',data:prData,borderColor:PR_COLOR,backgroundColor:PR_COLOR,tension:.25,spanGaps:true,pointRadius:0,borderWidth:2});
+      ds.push({label:'Print Room (Averaged)',data:prData,borderColor:PR_COLOR,backgroundColor:PR_COLOR,tension:.25,spanGaps:true,pointRadius:0,borderWidth:2});
       ds.push({label:'Print Room trend',data:linTrend(prData),borderColor:PR_COLOR,borderDash:[6,4],borderWidth:1.5,pointRadius:0,tension:0,spanGaps:true});
     }
     if(outMembers.length){
