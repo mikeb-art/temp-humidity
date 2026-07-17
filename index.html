@@ -68,6 +68,11 @@
   .trend-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-top:8px}
   .trend{border:1px solid #e3eaf3;border-radius:10px;padding:12px 14px;font-size:13px}
   .trend b{display:block;margin-bottom:4px}
+  .trend-date{display:block;font-size:11px;color:var(--muted);font-weight:400;margin:-2px 0 7px}
+  .oorgrid{display:grid;grid-template-columns:1fr 1fr;gap:1px 22px;margin-top:6px}
+  @media(max-width:640px){.oorgrid{grid-template-columns:1fr}}
+  .datacurrency{background:#eaf3ff;border:1px solid #cfe0f5;color:#1b3a5c;border-radius:10px;padding:8px 14px;font-size:12.5px;margin-bottom:14px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px}
+  .datacurrency .stale{color:var(--red);font-weight:700}
   .up{color:var(--red);font-weight:700}.down{color:var(--green);font-weight:700}.flat{color:var(--muted);font-weight:700}
   table.readings{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px}
   table.readings th{ text-align:left;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:2px solid #e3eaf3}
@@ -167,8 +172,8 @@ function renderDash(){
       +'<div class="rows">'+rows+'</div></div>';
   }
   let alertHtml='';
-  if(alerts.length) alertHtml='<div class="note"><b>⚠ Out of range now</b><br>'+alerts.map(a=>'• '+a).join('<br>')+'</div>';
-  c.innerHTML='<div class="cards">'+cards+'</div>'+alertHtml
+  if(alerts.length) alertHtml='<div class="note"><b>⚠ Out of range now</b><div class="oorgrid">'+alerts.map(a=>'<div>• '+a+'</div>').join('')+'</div></div>';
+  const _g=DATA.generated?new Date(DATA.generated.replace(' ','T')):null;const _hrs=_g?Math.round((Date.now()-_g.getTime())/3600000):null;const _stale=_hrs!=null&&_hrs>9;const _cur='<div class="datacurrency"><span>🕒 Data updated: '+(DATA.generated?DATA.generated.replace('T',' ').slice(0,16):'—')+(_hrs!=null?' <span class="'+(_stale?'stale':'')+'">('+_hrs+'h ago)</span>':'')+'</span><span>Auto-refreshes every 8 hours</span></div>';c.innerHTML=_cur+'<div class="cards">'+cards+'</div>'+alertHtml
     +'<div class="panel"><h3 id="trendsHead">30-Day Trends vs Prior 30 Days</h3><div class="range-btns"><button class="rbtn active" id="trendModeBtn" onclick="toggleTrendMode(this)">Show Year-over-Year</button></div><div class="trend-grid" id="trends"></div></div>'
     +'<div class="panel"><h3>Monthly Averages — All Locations</h3><div class="range-btns" id="mmode">'
     +'<button class="rbtn active" onclick="dashMetric=\'h\';drawDashMonthly();mark(this)">Humidity %</button>'
@@ -200,12 +205,16 @@ function trendOf(sensorEntries, idx){ // idx 1=temp,4=hum from daily [minT,avgT,
 function renderTrends(){
   const el=document.getElementById('trends');
   let html='';
+  const _tg=DATA.generated?new Date(DATA.generated.replace(' ','T')):new Date();
+  const _te=new Date(_tg), _ts=new Date(_tg); _ts.setDate(_ts.getDate()-30);
+  const _fd=x=>x.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  const _trange=(typeof trendMode!=='undefined'&&trendMode==='yoy')?('Last 30d vs same period '+(_te.getFullYear()-1)):(_fd(_ts)+' – '+_fd(_te)+', '+_te.getFullYear());
   for(const [code,name] of Object.entries(DATA.locations)){
     const ss=locSensors(code);
     const [tc,tp]=trendOf(ss,1), [hc,hp]=trendOf(ss,4);
     const arrow=(c,p)=>{if(c==null||p==null)return['flat','—'];const d=c-p;if(Math.abs(d)<0.5)return['flat','→ steady'];return d>0?['up','↑ +'+d.toFixed(1)]:['down','↓ '+d.toFixed(1)];};
     const [tc_,ta]=arrow(tc,tp),[hc_,ha]=arrow(hc,hp);
-    html+='<div class="trend"><b>'+code+' — '+name+'</b>'
+    html+='<div class="trend"><b>'+code+' — '+name+'</b><span class="trend-date">'+_trange+'</span>'
       +'Temp: '+(tc?tc.toFixed(1):'—')+'°F <span class="'+tc_+'">'+ta+'</span><br>'
       +'Humidity: '+(hc?hc.toFixed(1):'—')+'% <span class="'+hc_+'">'+ha+'</span></div>';
   }
