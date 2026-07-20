@@ -174,13 +174,13 @@ function renderDash(){
   let alertHtml='';
   if(alerts.length) alertHtml='<div class="note"><b>⚠ Out of range now</b><div class="oorgrid">'+alerts.map(a=>'<div>• '+a+'</div>').join('')+'</div></div>';
   const _g=DATA.generated?new Date(DATA.generated.replace(' ','T')):null;const _hrs=_g?Math.round((Date.now()-_g.getTime())/3600000):null;const _stale=_hrs!=null&&_hrs>9;const _cur='<div class="datacurrency"><span>🕒 Data updated: '+(DATA.generated?DATA.generated.replace('T',' ').slice(0,16):'—')+(_hrs!=null?' <span class="'+(_stale?'stale':'')+'">('+_hrs+'h ago)</span>':'')+'</span><span>Auto-refreshes every 8 hours</span></div>';c.innerHTML=_cur+'<div class="cards">'+cards+'</div>'+alertHtml
-    +'<div class="panel"><h3 id="trendsHead">30-Day Trends vs Prior 30 Days</h3><div class="range-btns"><button class="rbtn active" id="trendModeBtn" onclick="toggleTrendMode(this)">Show Year-over-Year</button></div><div class="trend-grid" id="trends"></div></div>'
+    +'<div class="panel"><h3 id="trendsHead">30-Day Trends vs Prior 30 Days</h3><div class="range-btns"><button class="rbtn active" id="trendModeBtn" onclick="toggleTrendMode(this)">Show Year-over-Year</button><button class="rbtn" id="trendOutsideBtn" onclick="trendOutsideClick(this)">Include Warehouse</button></div><div class="trend-grid" id="trends"></div></div>'
     +'<div class="panel"><h3>Monthly Averages — All Locations</h3><div class="range-btns" id="mmode">'
     +'<button class="rbtn active" onclick="dashMetric=\'h\';drawDashMonthly();mark(this)">Humidity %</button>'
     +'<button class="rbtn" onclick="dashMetric=\'t\';drawDashMonthly();mark(this)">Temperature °F</button></div>'
-    +'<div class="range-btns" id="drange"><button class="rbtn" data-r="30d" onclick="dashRangeClick(this)">30 Days</button><button class="rbtn" data-r="90d" onclick="dashRangeClick(this)">90 Days</button><button class="rbtn" data-r="1yr" onclick="dashRangeClick(this)">1 Year</button><button class="rbtn active" data-r="all" onclick="dashRangeClick(this)">All</button></div><div class="range-btns"><button class="rbtn" id="outsideBtn" onclick="dashOutsideClick(this)">Include Outside</button></div>'
+    +'<div class="range-btns" id="drange"><button class="rbtn" data-r="30d" onclick="dashRangeClick(this)">30 Days</button><button class="rbtn" data-r="90d" onclick="dashRangeClick(this)">90 Days</button><button class="rbtn" data-r="1yr" onclick="dashRangeClick(this)">1 Year</button><button class="rbtn active" data-r="all" onclick="dashRangeClick(this)">All</button></div><div class="range-btns"><button class="rbtn" id="outsideBtn" onclick="dashOutsideClick(this)">Include Warehouse</button></div>'
     +'<div class="chartwrap"><canvas id="dashChart"></canvas></div>'
-    +'<div class="legend-note">One line per location (print-room sensors averaged; toggle to add outside). Shaded band = target range.</div></div>';
+    +'<div class="legend-note">One line per location (print-room sensors averaged; toggle to add warehouse). Shaded band = target range.</div></div>';
   renderTrends();
   drawDashMonthly();
 }
@@ -188,9 +188,9 @@ function mark(btn){btn.parentElement.querySelectorAll('.rbtn').forEach(b=>b.clas
 let dashMetric='h';
 let dashRange='all';
 let dashIncludeOutside=false;
-let trendMode='trend';
+let trendMode='trend'; let trendIncludeOutside=false;
 function dashRangeClick(btn){dashRange=btn.dataset.r;drawDashMonthly();mark(btn);}
-function dashOutsideClick(btn){dashIncludeOutside=!dashIncludeOutside;btn.classList.toggle('active');drawDashMonthly();}
+function trendOutsideClick(btn){trendIncludeOutside=!trendIncludeOutside;btn.classList.toggle('active');renderTrends();} function dashOutsideClick(btn){dashIncludeOutside=!dashIncludeOutside;btn.classList.toggle('active');drawDashMonthly();}
 function toggleTrendMode(btn){trendMode=(trendMode==='trend')?'yoy':'trend';var hd=document.getElementById('trendsHead');if(hd)hd.textContent=(trendMode==='yoy')?'Year-over-Year — Last 30 Days vs Same Period Last Year':'30-Day Trends vs Prior 30 Days';btn.textContent=(trendMode==='yoy')?'Show 30-Day Trends':'Show Year-over-Year';renderTrends();}
 
 function trendOf(sensorEntries, idx){ // idx 1=temp,4=hum from daily [minT,avgT,maxT,minH,avgH,maxH]
@@ -210,7 +210,7 @@ function renderTrends(){
   const _fd=x=>x.toLocaleDateString('en-US',{month:'short',day:'numeric'});
   const _trange=(typeof trendMode!=='undefined'&&trendMode==='yoy')?('Last 30d vs same period '+(_te.getFullYear()-1)):(_fd(_ts)+' – '+_fd(_te)+', '+_te.getFullYear());
   for(const [code,name] of Object.entries(DATA.locations)){
-    const ss=locSensors(code);
+    const ss=locSensors(code).filter(([nm])=>trendIncludeOutside||!isOutsideSensor(nm));
     const [tc,tp]=trendOf(ss,1), [hc,hp]=trendOf(ss,4);
     const arrow=(c,p)=>{if(c==null||p==null)return['flat','—'];const d=c-p;if(Math.abs(d)<0.5)return['flat','→ steady'];return d>0?['up','↑ +'+d.toFixed(1)]:['down','↓ '+d.toFixed(1)];};
     const [tc_,ta]=arrow(tc,tp),[hc_,ha]=arrow(hc,hp);
