@@ -183,15 +183,26 @@ function renderDash(){
     +'<button class="rbtn" onclick="dashMetric=\'t\';drawDashMonthly();mark(this)">Temperature °F</button></div>'
     +'<div class="range-btns" id="drange"><button class="rbtn" data-r="30d" onclick="dashRangeClick(this)">30 Days</button><button class="rbtn" data-r="90d" onclick="dashRangeClick(this)">90 Days</button><button class="rbtn" data-r="1yr" onclick="dashRangeClick(this)">1 Year</button><button class="rbtn active" data-r="all" onclick="dashRangeClick(this)">All</button></div><div class="range-btns"><button class="rbtn" id="outsideBtn" onclick="dashOutsideClick(this)">Include Warehouse</button></div>'
     +'<div class="chartwrap"><canvas id="dashChart"></canvas></div>'
-    +'<div class="legend-note">One line per location (print-room sensors averaged; toggle to add warehouse). Shaded band = target range.</div></div>';
+    +'<div class="legend-note">One line per location (print-room sensors averaged; toggle to add warehouse). Shaded band = target range.</div></div>'
++'<div class="panel"><h3 id="yoyHead">Year-over-Year Comparison — All Locations</h3><div class="range-btns"><label class="sel-label">Location <select id="yoyLocSel" onchange="yoyLocClick(this)"><option value="all">All Locations</option>'+Object.keys(DATA.locations).map(function(c){return '<option value="'+c+'">'+c+' — '+DATA.locations[c]+'</option>';}).join('')+'</select></label></div>'
++'<div class="range-btns" id="ymode"><button class="rbtn active" onclick="yoyMetric=\'h\';drawYoY();mark(this)">Humidity %</button><button class="rbtn" onclick="yoyMetric=\'t\';drawYoY();mark(this)">Temperature °F</button></div>'
++'<div class="range-btns" id="yrange"><button class="rbtn" data-r="30d" onclick="yoyRangeClick(this)">30 Days</button><button class="rbtn" data-r="90d" onclick="yoyRangeClick(this)">90 Days</button><button class="rbtn" data-r="1yr" onclick="yoyRangeClick(this)">1 Year</button><button class="rbtn active" data-r="all" onclick="yoyRangeClick(this)">All</button></div>'
++'<div class="range-btns"><button class="rbtn" id="yoyOutsideBtn" onclick="yoyOutsideClick(this)">Include Warehouse</button></div>'
++'<div class="chartwrap"><canvas id="yoyChart"></canvas></div>'
++'<div class="legend-note">Solid line = the selected period; dashed line of the same colour = the same period one year earlier. Gaps mean there is no prior-year data yet. Shaded band = target range.</div></div>';
   renderTrends();
-  drawDashMonthly();
+drawDashMonthly();
+drawYoY();
 }
 function mark(btn){btn.parentElement.querySelectorAll('.rbtn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
 let dashMetric='h';
 let dashRange='all';
 let dashIncludeOutside=false;
 let dashLoc='all';
+let yoyMetric='h'; let yoyRange='all'; let yoyIncludeOutside=false; let yoyLoc='all';
+function yoyRangeClick(btn){yoyRange=btn.dataset.r;drawYoY();mark(btn);}
+function yoyOutsideClick(btn){yoyIncludeOutside=!yoyIncludeOutside;btn.classList.toggle('active');drawYoY();}
+function yoyLocClick(sel){yoyLoc=sel.value;var hd=document.getElementById('yoyHead');if(hd)hd.textContent='Year-over-Year Comparison — '+(yoyLoc==='all'?'All Locations':(yoyLoc+' — '+DATA.locations[yoyLoc]));drawYoY();}
 function dashLocClick(sel){dashLoc=sel.value;var hd=document.getElementById('dashMonthlyHead');if(hd)hd.textContent='Monthly Averages — '+(dashLoc==='all'?'All Locations':(dashLoc+' — '+DATA.locations[dashLoc]));drawDashMonthly();}
 let trendMode='trend'; let trendIncludeOutside=false;
 function dashRangeClick(btn){dashRange=btn.dataset.r;drawDashMonthly();mark(btn);}
@@ -231,8 +242,9 @@ function bandPlugin(lo,hi){
     const y1=y.getPixelForValue(hi),y2=y.getPixelForValue(lo);
     ctx.save();ctx.fillStyle='rgba(30,158,74,.08)';ctx.fillRect(a.left,Math.max(y1,a.top),a.right-a.left,Math.min(y2,a.bottom)-Math.max(y1,a.top));ctx.restore();}};
 }
+function killChart(id){var el=document.getElementById(id);if(!el)return;var c=Chart.getChart(el);if(c){var i=charts.indexOf(c);if(i>=0)charts.splice(i,1);c.destroy();}}
 function drawDashMonthly(){
-  killCharts();
+killChart('dashChart');
   const t=dashMetric==='t';
   const daily=(dashRange==='30d'||dashRange==='90d');
   const inc=nm=>dashIncludeOutside||!isOutsideSensor(nm);
@@ -267,6 +279,50 @@ function drawDashMonthly(){
     data:{labels,datasets:ds},
     options:{responsive:true,maintainAspectRatio:false,scales:{y:{title:{display:true,text:t?'°F':'% RH'}}},plugins:{legend:{position:'bottom'}}},
     plugins:[bandPlugin(...(t?[T_LO,T_HI]:[H_LO,H_HI]))]}));
+}
+
+
+function drawYoY(){
+killChart('yoyChart');
+const t=yoyMetric==='t';
+const daily=(yoyRange==='30d'||yoyRange==='90d');
+const inc=nm=>yoyIncludeOutside||!isOutsideSensor(nm);
+const py=k=>(parseInt(k.slice(0,4),10)-1)+k.slice(4);
+let labels=[], ds=[];
+if(daily){
+const gen=new Date(DATA.generated);
+const days=yoyRange==='30d'?30:90;
+const from=new Date(gen);from.setDate(from.getDate()-days);
+const fromStr=from.toISOString().slice(0,10);
+const set=new Set();
+Object.values(DATA.sensors).forEach(s=>Object.keys(s.daily||{}).forEach(d=>{if(d>=fromStr)set.add(d);}));
+labels=[...set].sort();
+const di=t?1:4;
+for(const [code] of Object.entries(DATA.locations)){
+if(yoyLoc!=='all'&&code!==yoyLoc)continue;
+const ss=locSensors(code);
+const pick=k=>{let s=0,n=0;for(const[nm,sd]of ss){if(!inc(nm))continue;const v=sd.daily[k];if(v){s+=v[di];n++;}}return n?+(s/n).toFixed(1):null;};
+ds.push({label:code+' — this year',data:labels.map(k=>pick(k)),borderColor:LOC_COLORS[code],backgroundColor:LOC_COLORS[code],borderWidth:2.4,tension:.3,spanGaps:true,pointRadius:0});
+ds.push({label:code+' — prior year',data:labels.map(k=>pick(py(k))),borderColor:LOC_COLORS[code],backgroundColor:LOC_COLORS[code],borderWidth:1.5,borderDash:[5,4],tension:.3,spanGaps:true,pointRadius:0});
+}
+}else{
+const months=new Set();
+Object.values(DATA.sensors).forEach(s=>Object.keys(s.monthly).forEach(m=>months.add(m)));
+let all=[...months].sort().filter(m=>m>='2024-06');
+labels=yoyRange==='1yr'?all.slice(-12):all;
+const mi=t?0:1;
+for(const [code] of Object.entries(DATA.locations)){
+if(yoyLoc!=='all'&&code!==yoyLoc)continue;
+const ss=locSensors(code);
+const pick=k=>{let s=0,n=0;for(const[nm,sd]of ss){if(!inc(nm))continue;const v=sd.monthly[k];if(v){s+=v[mi];n++;}}return n?+(s/n).toFixed(1):null;};
+ds.push({label:code+' — this year',data:labels.map(k=>pick(k)),borderColor:LOC_COLORS[code],backgroundColor:LOC_COLORS[code],borderWidth:2.4,tension:.3,spanGaps:true,pointRadius:2});
+ds.push({label:code+' — prior year',data:labels.map(k=>pick(py(k))),borderColor:LOC_COLORS[code],backgroundColor:LOC_COLORS[code],borderWidth:1.5,borderDash:[5,4],tension:.3,spanGaps:true,pointRadius:0});
+}
+}
+charts.push(new Chart(document.getElementById('yoyChart'),{type:'line',
+data:{labels,datasets:ds},
+options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},scales:{y:{title:{display:true,text:t?'°F':'% RH'}}},plugins:{legend:{position:'bottom'}}},
+plugins:[bandPlugin(...(t?[T_LO,T_HI]:[H_LO,H_HI]))]}));
 }
 
 /* ---------- Location view ---------- */
