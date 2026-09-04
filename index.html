@@ -69,6 +69,7 @@
   .trend{border:1px solid #e3eaf3;border-radius:10px;padding:12px 14px;font-size:13px}
   .trend b{display:block;margin-bottom:4px}
   .trend-date{display:block;font-size:11px;color:var(--muted);font-weight:400;margin:-2px 0 7px}
+  .oor-lim{color:var(--muted);font-size:11px}
   .oorgrid{display:grid;grid-template-columns:1fr 1fr;gap:1px 22px;margin-top:6px}
   @media(max-width:640px){.oorgrid{grid-template-columns:1fr}}
   .datacurrency{background:#eaf3ff;border:1px solid #cfe0f5;color:#1b3a5c;border-radius:10px;padding:8px 14px;font-size:12.5px;margin-bottom:14px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px}
@@ -103,7 +104,7 @@
   <a class="nav-item" style="text-decoration:none" href="https://mikeb-art.github.io/machine-maintenance/"><span class="ico">🛠</span> Machine Maintenance</a>
   <a class="nav-item" style="text-decoration:none" href="https://mikeb-art.github.io/barbieri-doc-monitoring/"><span class="ico">🎯</span> Barbieri DOC</a>
 
-  <div class="foot">Targets: 68–76 °F · 45–55 %RH<br><span id="gen"></span></div>
+  <div class="foot">Print room: 68–76 °F · 45–55 %RH<br>Warehouse / Monti: 55–95 °F · 20–65 %RH<br><span id="gen"></span></div>
 </nav>
 <div id="main">
   <div id="topbar"><h2 id="title">▦ Dashboard</h2><div class="sub" id="subtitle">All locations — current conditions &amp; trends</div></div>
@@ -111,13 +112,19 @@
 </div>
 <script>
 const T_LO=68, T_HI=76, H_LO=45, H_HI=55;
+// Warehouse / Monti-area sensors (matched by isOutsideSensor) use a wider range
+const outsideTargets={tempF:[55,95], rh:[20,65]};
+function limitsFor(nm){ return (nm&&isOutsideSensor(nm))
+  ? {tl:outsideTargets.tempF[0],th:outsideTargets.tempF[1],hl:outsideTargets.rh[0],hh:outsideTargets.rh[1],outside:true}
+  : {tl:T_LO,th:T_HI,hl:H_LO,hh:H_HI,outside:false}; }
 const NEAR=2; // within this of the edge = warning
 let DATA=null, charts=[];
 
-function status(t,h){
-  const tBad = t<T_LO||t>T_HI, hBad = h<H_LO||h>H_HI;
+function status(t,h,nm){
+  const L=limitsFor(nm);
+  const tBad = t<L.tl||t>L.th, hBad = h<L.hl||h>L.hh;
   if(tBad||hBad) return 'bad';
-  if(t<T_LO+NEAR||t>T_HI-NEAR||h<H_LO+NEAR||h>H_HI-NEAR) return 'warn';
+  if(t<L.tl+NEAR||t>L.th-NEAR||h<L.hl+NEAR||h>L.hh-NEAR) return 'warn';
   return 'ok';
 }
 const S_LABEL={ok:'IN RANGE',warn:'NEAR EDGE',bad:'OUT OF RANGE',stale:'STALE'};
@@ -160,13 +167,13 @@ function renderDash(){
     for(const [nm,s] of ss){
       const [ts,t,h]=s.latest;
       const stale=isStale(ts);
-      const st=stale?'stale':status(t,h);
+      const st=stale?'stale':status(t,h,nm);
       if(!stale){sumT+=t;sumH+=h;n++;}
       if(st==='bad'){ if(worst!=='bad')worst='bad';
-        const parts=[];
-        if(t<T_LO)parts.push(t.toFixed(1)+'°F (low)'); if(t>T_HI)parts.push(t.toFixed(1)+'°F (high)');
-        if(h<H_LO)parts.push(h.toFixed(1)+'% RH (low)'); if(h>H_HI)parts.push(h.toFixed(1)+'% RH (high)');
-        alerts.push(code+' · '+nm+': '+parts.join(', '));
+        const parts=[], L=limitsFor(nm);
+        if(t<L.tl)parts.push(t.toFixed(1)+'°F (low)'); if(t>L.th)parts.push(t.toFixed(1)+'°F (high)');
+        if(h<L.hl)parts.push(h.toFixed(1)+'% RH (low)'); if(h>L.hh)parts.push(h.toFixed(1)+'% RH (high)');
+        alerts.push(code+' · '+nm+': '+parts.join(', ')+(L.outside?' <span class="oor-lim">(warehouse range '+L.tl+'–'+L.th+' °F / '+L.hl+'–'+L.hh+' %RH)</span>':''));
       } else if(st==='warn'&&worst==='ok')worst='warn';
       rows+='<div class="srow" onclick="show(\'loc-'+code+'\')"><span class="nm">'+nm+'</span><span class="vals">'+fmt(t,'°F')+' · '+fmt(h,'%')+'<span class="pill '+st+'">'+S_LABEL[st]+'</span></span></div>';
     }
@@ -237,10 +244,13 @@ function renderTrends(){
   el.innerHTML=html;
 }
 const LOC_COLORS={CA:'#1f6fd6',MX:'#1e9e4a',PA:'#d98a00'};
-function bandPlugin(lo,hi){
+function bandPlugin(lo,hi,lo2,hi2){
   return {id:'band',beforeDraw(ch){const {ctx,chartArea:a,scales:{y}}=ch;if(!a)return;
-    const y1=y.getPixelForValue(hi),y2=y.getPixelForValue(lo);
-    ctx.save();ctx.fillStyle='rgba(30,158,74,.08)';ctx.fillRect(a.left,Math.max(y1,a.top),a.right-a.left,Math.min(y2,a.bottom)-Math.max(y1,a.top));ctx.restore();}};
+    const draw=(l,h,fill)=>{const y1=y.getPixelForValue(h),y2=y.getPixelForValue(l);
+      ctx.save();ctx.fillStyle=fill;ctx.fillRect(a.left,Math.max(y1,a.top),a.right-a.left,Math.min(y2,a.bottom)-Math.max(y1,a.top));ctx.restore();};
+    if(lo2!=null&&hi2!=null) draw(lo2,hi2,'rgba(217,138,0,.07)'); // warehouse / Monti band (amber)
+    draw(lo,hi,'rgba(30,158,74,.08)'); // print-room target band (green)
+  }};
 }
 function killChart(id){var el=document.getElementById(id);if(!el)return;var c=Chart.getChart(el);if(c){var i=charts.indexOf(c);if(i>=0)charts.splice(i,1);c.destroy();}}
 function drawDashMonthly(){
@@ -335,7 +345,7 @@ function renderLoc(code){
   const ss=locSensors(code);
   let rows='';
   for(const [nm,s] of ss){
-    const [ts,t,h]=s.latest; const st=isStale(ts)?'stale':status(t,h);
+    const [ts,t,h]=s.latest; const st=isStale(ts)?'stale':status(t,h,nm);
     rows+='<tr><td>'+nm+'</td><td>'+fmt(t,'°F')+'</td><td>'+fmt(h,'%')+'</td><td>'+ts.replace('T',' ').slice(0,16)+'</td><td><span class="pill '+st+'">'+S_LABEL[st]+'</span></td></tr>';
   }
   c.innerHTML='<div class="panel" style="margin-top:0"><h3>Current Readings</h3><table class="readings"><tr><th>Sensor</th><th>Temp</th><th>Humidity</th><th>Last reading</th><th>Status</th></tr>'+rows+'</table></div>'
@@ -343,7 +353,7 @@ function renderLoc(code){
    +['30d','90d','180d','all'].map(r=>'<button class="rbtn'+(r===locRange?' active':'')+'" onclick="locRange=\''+r+'\';renderLocCharts(\''+code+'\');markRange(this)">'+({'30d':'30 days','90d':'90 days','180d':'180 days','all':'All time'})[r]+'</button>').join('')
    +'</div><div class="chartwrap"><canvas id="tChart"></canvas></div></div>'
    +'<div class="panel"><h3>Humidity</h3><div class="chartwrap"><canvas id="hChart"></canvas></div>'
-   +'<div class="legend-note">Print Room line = average of all in-room sensors (room + presses). Monti / outside-print-room sensors shown as a separate line. Shaded band = target range (68–76 °F / 45–55 %RH). 30, 90 &amp; 180-day views plot daily averages; “All time” plots monthly averages.</div></div>';
+   +'<div class="legend-note">Print Room line = average of all in-room sensors (room + presses). Monti / outside-print-room sensors shown as a separate line. Green band = print-room target range (68–76 °F / 45–55 %RH); amber band = warehouse / Monti-area range (55–95 °F / 20–65 %RH). 30, 90 &amp; 180-day views plot daily averages; “All time” plots monthly averages.</div></div>';
   renderLocCharts(code);
 }
 function markRange(btn){btn.parentElement.querySelectorAll('.rbtn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
@@ -391,8 +401,9 @@ function renderLocCharts(code){
     return ds;
   };
   const opts=(unit,lo,hi)=>({responsive:true,maintainAspectRatio:false,animation:false, scales:{y:{title:{display:true,text:unit}},x:{ticks:{maxTicksLimit:14}}},plugins:{legend:{position:'bottom'}}});
-  charts.push(new Chart(document.getElementById('tChart'),{type:'line',data:{labels,datasets:mk('t')},options:opts('°F'),plugins:[bandPlugin(T_LO,T_HI)]}));
-  charts.push(new Chart(document.getElementById('hChart'),{type:'line',data:{labels,datasets:mk('h')},options:opts('% RH'),plugins:[bandPlugin(H_LO,H_HI)]}));
+  const ob=outMembers.length?outsideTargets:null;
+  charts.push(new Chart(document.getElementById('tChart'),{type:'line',data:{labels,datasets:mk('t')},options:opts('°F'),plugins:[bandPlugin(T_LO,T_HI,...(ob?ob.tempF:[]))]}));
+  charts.push(new Chart(document.getElementById('hChart'),{type:'line',data:{labels,datasets:mk('h')},options:opts('% RH'),plugins:[bandPlugin(H_LO,H_HI,...(ob?ob.rh:[]))]}));
 }
 fetch('data.json').then(r=>r.json()).then(d=>{
   DATA=d;
