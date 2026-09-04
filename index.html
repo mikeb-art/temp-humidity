@@ -51,6 +51,11 @@
   .card .big{font-size:26px;font-weight:800;margin:6px 0 2px}
   .card .big .t{color:var(--ink)} .card .big .h{color:var(--hl)}
   .card .rows{margin-top:10px;font-size:12.5px}
+  .wtag{display:inline-block;font-size:9.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#a36a00;background:rgba(217,138,0,.12);border-radius:3px;padding:1px 5px;margin-left:6px;vertical-align:middle}
+  .srow-out{border-top:1px dashed #d9c48f}
+  .srow-out+.srow-out{border-top:1px solid #eef2f7}
+  tr.tr-out td{border-top:1px dashed #d9c48f}
+  tr.tr-out+tr.tr-out td{border-top:1px solid #eef2f7}
   .srow{display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid #eef2f7;cursor:pointer}
   .srow:hover{background:#f5f8fc}
   .srow .nm{color:var(--ink)}
@@ -130,7 +135,7 @@ function status(t,h,nm){
 const S_LABEL={ok:'IN RANGE',warn:'NEAR EDGE',bad:'OUT OF RANGE',stale:'STALE'};
 const fmt=(v,u)=>v==null?'—':v.toFixed(1)+u;
 
-function locSensors(loc){return Object.entries(DATA.sensors).filter(([n,s])=>s.loc===loc);}
+function locSensors(loc){return Object.entries(DATA.sensors).filter(([n,s])=>s.loc===loc).sort((a,b)=>(isOutsideSensor(a[0])?1:0)-(isOutsideSensor(b[0])?1:0));}
 function isStale(iso){ return (new Date(DATA.generated) - new Date(iso.replace(' ','T'))) > 3*3600*1000; }
 
 function buildNav(){
@@ -175,7 +180,7 @@ function renderDash(){
         if(h<L.hl)parts.push(h.toFixed(1)+'% RH (low)'); if(h>L.hh)parts.push(h.toFixed(1)+'% RH (high)');
         alerts.push(code+' · '+nm+': '+parts.join(', ')+(L.outside?' <span class="oor-lim">(warehouse range '+L.tl+'–'+L.th+' °F / '+L.hl+'–'+L.hh+' %RH)</span>':''));
       } else if(st==='warn'&&worst==='ok')worst='warn';
-      rows+='<div class="srow" onclick="show(\'loc-'+code+'\')"><span class="nm">'+nm+'</span><span class="vals">'+fmt(t,'°F')+' · '+fmt(h,'%')+'<span class="pill '+st+'">'+S_LABEL[st]+'</span></span></div>';
+      rows+='<div class="srow'+(isOutsideSensor(nm)?' srow-out':'')+'" onclick="show(\'loc-'+code+'\')"><span class="nm">'+nm+'</span><span class="vals">'+fmt(t,'°F')+' · '+fmt(h,'%')+'<span class="pill '+st+'">'+S_LABEL[st]+'</span></span></div>';
     }
     cards+='<div class="card '+worst+'"><div class="loc">'+code+' — '+name+'</div>'
       +'<div class="big"><span class="t">'+(n?(sumT/n).toFixed(1):'—')+'°F</span> · <span class="h">'+(n?(sumH/n).toFixed(1):'—')+'% RH</span></div>'
@@ -346,7 +351,7 @@ function renderLoc(code){
   let rows='';
   for(const [nm,s] of ss){
     const [ts,t,h]=s.latest; const st=isStale(ts)?'stale':status(t,h,nm);
-    rows+='<tr><td>'+nm+'</td><td>'+fmt(t,'°F')+'</td><td>'+fmt(h,'%')+'</td><td>'+ts.replace('T',' ').slice(0,16)+'</td><td><span class="pill '+st+'">'+S_LABEL[st]+'</span></td></tr>';
+    rows+='<tr'+(isOutsideSensor(nm)?' class="tr-out"':'')+'><td>'+nm+(isOutsideSensor(nm)?' <span class="wtag">warehouse</span>':'')+'</td><td>'+fmt(t,'°F')+'</td><td>'+fmt(h,'%')+'</td><td>'+ts.replace('T',' ').slice(0,16)+'</td><td><span class="pill '+st+'">'+S_LABEL[st]+'</span></td></tr>';
   }
   c.innerHTML='<div class="panel" style="margin-top:0"><h3>Current Readings</h3><table class="readings"><tr><th>Sensor</th><th>Temp</th><th>Humidity</th><th>Last reading</th><th>Status</th></tr>'+rows+'</table></div>'
    +'<div class="panel"><h3>Temperature</h3><div class="range-btns">'
